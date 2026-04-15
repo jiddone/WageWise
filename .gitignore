@@ -1,5 +1,6 @@
 # Virtual environment
 venv/
+.venv/
 
 # Requirements doc (internal, not for distribution)
 requirements.md
@@ -8,6 +9,9 @@ requirements.md
 __pycache__/
 *.py[cod]
 *.pyo
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
 
 # Data directory (generated at runtime)
 data/
