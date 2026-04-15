@@ -1,0 +1,18 @@
+# Virtual environment
+venv/
+
+# Requirements doc (internal, not for distribution)
+requirements.md
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Data directory (generated at runtime)
+data/
+
+# PyInstaller
+build/
+dist/
+*.spec
