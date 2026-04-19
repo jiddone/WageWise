@@ -2,6 +2,7 @@
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont
 
 
 class HistoryView(QWidget):
@@ -16,7 +17,7 @@ class HistoryView(QWidget):
         layout.setContentsMargins(20, 20, 20, 20)
 
         title = QLabel("Storico")
-        title_font = title.font()
+        title_font = QFont()
         title_font.setPointSize(18)
         title_font.setBold(True)
         title.setFont(title_font)

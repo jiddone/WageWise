@@ -240,6 +240,9 @@ class DashboardController(QObject):
             # Ora elimina il modello (non è più quello attivo)
             self._model_model.delete_model(model_id, active_model_id)
 
+            # Chiudi l'editor se era aperto per il modello eliminato
+            self._view.close_custom_model_editor()
+
             # Ricarica la lista modelli
             self.refresh()
 

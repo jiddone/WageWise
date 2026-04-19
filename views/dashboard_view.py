@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QFrame, QMessageBox, QListView, QStyledItemDelegate, QStyleOptionViewItem,
     QStyle
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QRect
+from PyQt6.QtCore import Qt, pyqtSignal, QRect, QSize
 from PyQt6.QtGui import QColor, QDoubleValidator, QPalette, QFont, QTextOption
 
 
@@ -25,6 +25,12 @@ class ModelComboDelegate(QStyledItemDelegate):
         """Imposta quali modelli sono custom (e quindi hanno il pulsante elimina)."""
         self._custom_model_ids = custom_ids
         
+    def initStyleOption(self, option, index):
+        """Override per garantire sempre un font con pointSize valido (evita warning QSS)."""
+        super().initStyleOption(option, index)
+        if option.font.pointSize() <= 0:
+            option.font = QFont("Arial", 10)
+
     def paint(self, painter, option, index):
         """Disegna la riga con il nome del modello e il pulsante elimina se custom."""
         from PyQt6.QtGui import QTextOption
@@ -33,9 +39,11 @@ class ModelComboDelegate(QStyledItemDelegate):
         model_id = index.data(Qt.ItemDataRole.UserRole)
         text = index.data(Qt.ItemDataRole.DisplayRole)
         
-        # Disegna lo sfondo
+        # Disegna lo sfondo in base allo stato (selezione / hover / normale)
         if option.state & QStyle.StateFlag.State_Selected:
             painter.fillRect(option.rect, option.palette.highlight())
+        elif option.state & QStyle.StateFlag.State_MouseOver:
+            painter.fillRect(option.rect, QColor("#3a3a5c"))
         else:
             painter.fillRect(option.rect, option.palette.base())
             
@@ -71,15 +79,17 @@ class ModelComboDelegate(QStyledItemDelegate):
             if index.row() in self._delete_button_rects:
                 del self._delete_button_rects[index.row()]
         
-        # Disegna il testo
+        # Disegna il testo con font esplicito (evita warning pointSize=-1 da QSS)
+        safe_font = QFont("Arial", 10)
+        painter.setFont(safe_font)
         painter.setPen(option.palette.text().color())
         painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, text)
         
     def sizeHint(self, option, index):
         """Restituisce la dimensione preferita per la riga."""
-        size = super().sizeHint(option, index)
-        size.setHeight(28)
-        return size
+        # Non chiamiamo super() perché internamente userebbe il font del widget
+        # che con QSS ha pixelSize impostato e pointSize=-1, causando warning.
+        return QSize(option.rect.width() if option.rect.width() > 0 else 200, 28)
         
     def editorEvent(self, event, model, option, index):
         """Gestisce il click sul pulsante elimina."""
@@ -124,7 +134,7 @@ class DashboardView(QWidget):
 
         # Titolo pagina
         title = QLabel("Dashboard")
-        title_font = title.font()
+        title_font = QFont()
         title_font.setPointSize(18)
         title_font.setBold(True)
         title.setFont(title_font)
@@ -520,6 +530,18 @@ class DashboardView(QWidget):
         self._editing_model_id = model.get("id", "")
         self._custom_editor_widget.setVisible(True)
         self._create_model_btn.setEnabled(False)
+
+    def close_custom_model_editor(self) -> None:
+        """Chiude e resetta completamente l'editor del modello custom."""
+        self._editing_model_id = ""
+        self._custom_editor_widget.setVisible(False)
+        self._create_model_btn.setEnabled(True)
+        self._custom_model_name_input.clear()
+        while self._categories_layout.count() > 0:
+            item = self._categories_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self._update_remaining_percentage()
 
     def is_custom_model_editor_visible(self) -> bool:
         """Restituisce True se l'editor custom è visibile."""
