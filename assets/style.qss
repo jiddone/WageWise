@@ -8,7 +8,7 @@ QWidget {
     background-color: #1e1e2e;
     color: #ffffff;
     font-family: "Segoe UI", sans-serif;
-    font-size: 13px;
+    font-size: 10pt;
 }
 
 /* === QPushButton === */
@@ -18,7 +18,7 @@ QPushButton {
     border: 1px solid #3a3a4c;
     border-radius: 6px;
     padding: 8px 16px;
-    font-size: 13px;
+    font-size: 10pt;
 }
 QPushButton:hover {
     background-color: #3a3a4c;
@@ -138,11 +138,11 @@ QLabel {
     background-color: transparent;
 }
 QLabel[class="title"] {
-    font-size: 18px;
+    font-size: 14pt;
     font-weight: bold;
 }
 QLabel[class="subtitle"] {
-    font-size: 14px;
+    font-size: 11pt;
     color: #a0a0b0;
 }
 QLabel[class="error"] {

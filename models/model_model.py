@@ -121,6 +121,19 @@ class ModelModel:
         self._save()
         return dict(new_model)
 
+    def create_custom_model(self, name: str, categories: list[dict]) -> str:
+        """Crea un modello custom e restituisce il suo ID.
+
+        Args:
+            name: Nome del modello
+            categories: Lista di dict con 'name', 'percentage', 'color'
+
+        Returns:
+            str: ID del modello creato
+        """
+        model = self.create_model(name, categories)
+        return model["id"]
+
     def update_model(self, model_id: str, name: str | None = None,
                      categories: list[dict] | None = None) -> dict:
         model = self._find_model(model_id)
