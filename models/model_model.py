@@ -131,7 +131,8 @@ class ModelModel:
         Returns:
             str: ID del modello creato
         """
-        return self.create_model(name, categories)
+        model = self.create_model(name, categories)
+        return model["id"]
 
     def update_model(self, model_id: str, name: str | None = None,
                      categories: list[dict] | None = None) -> dict:

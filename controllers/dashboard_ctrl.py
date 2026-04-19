@@ -50,6 +50,8 @@ class DashboardController(QObject):
         self._view.model_selected.connect(self._on_model_selected)
         self._view.custom_model_save_requested.connect(self._on_save_custom_model)
         self._view.custom_model_cancel_requested.connect(self._on_cancel_custom_model)
+        self._view.delete_model_requested.connect(self._on_delete_model)
+        self._view.edit_model_requested.connect(self._on_edit_model)
 
         # Connetti all'AppState per aggiornamenti
         self._app_state.salary_changed.connect(self._on_salary_changed)
@@ -77,7 +79,9 @@ class DashboardController(QObject):
 
         # Carica i modelli
         models = self._model_model.get_model_names()
-        self._view.set_models(models)
+        custom_models = self._model_model.get_custom_models()
+        custom_ids = {m["id"] for m in custom_models}
+        self._view.set_models(models, custom_ids)
 
         # Seleziona il modello attivo
         active_model_id = self._settings_model.get_active_model_id()
@@ -149,12 +153,13 @@ class DashboardController(QObject):
         """Reagisce ai cambiamenti di modello dall'AppState."""
         self._update_summary()
 
-    def _on_save_custom_model(self, name: str, categories: list) -> None:
+    def _on_save_custom_model(self, name: str, categories: list, model_id: str = None) -> None:
         """Gestisce il salvataggio di un modello custom.
 
         Args:
             name: Nome del modello
             categories: Lista di dict con 'name', 'percentage', 'color'
+            model_id: ID del modello da aggiornare (None per creazione)
         """
         # Valida le categorie
         is_valid, errors = validate_model_categories(categories)
@@ -162,26 +167,32 @@ class DashboardController(QObject):
             self._view.show_error("\n".join(errors))
             return
 
-        # Crea il modello
         try:
-            model_id = self._model_model.create_custom_model(name, categories)
+            if model_id:
+                # Aggiorna modello esistente
+                self._model_model.update_model(model_id, name, categories)
+                self._view.show_info(f"Modello '{name}' aggiornato con successo!")
+            else:
+                # Crea nuovo modello
+                model_id = self._model_model.create_custom_model(name, categories)
+                self._settings_model.set_active_model_id(model_id)
+                self._app_state.current_model_id = model_id
+                self._view.show_info(f"Modello '{name}' salvato con successo!")
 
             # Aggiorna la lista modelli nella view
             models = self._model_model.get_model_names()
-            self._view.set_models(models)
+            custom_models = self._model_model.get_custom_models()
+            custom_ids = {m["id"] for m in custom_models}
+            self._view.set_models(models, custom_ids)
 
-            # Seleziona il nuovo modello
+            # Seleziona il modello
             self._view.set_selected_model(model_id)
-            self._settings_model.set_active_model_id(model_id)
-            self._app_state.current_model_id = model_id
 
             # Nascondi l'editor
             self._view.show_custom_model_editor(False)
 
             # Aggiorna la tabella riepilogativa
             self._update_summary()
-
-            self._view.show_info(f"Modello '{name}' salvato con successo!")
 
         except Exception as e:
             self._view.show_error(f"Errore nel salvare il modello: {str(e)}")
@@ -190,3 +201,51 @@ class DashboardController(QObject):
         """Gestisce l'annullamento della creazione modello custom."""
         # La view già nasconde l'editor, qui possiamo fare pulizia aggiuntiva se necessario
         pass
+
+    def _on_edit_model(self, model_id: str) -> None:
+        """Gestisce la richiesta di modifica di un modello custom."""
+        try:
+            # Ottieni i dati del modello
+            model = self._model_model.get_model_by_id(model_id)
+            if model:
+                # Popola l'editor con i dati del modello
+                self._view.populate_model_editor(model)
+        except Exception as e:
+            self._view.show_error(f"Errore nel caricare il modello: {str(e)}")
+
+    def _on_delete_model(self, model_id: str) -> None:
+        """Gestisce l'eliminazione di un modello custom."""
+        try:
+            # Ottieni il modello attivo
+            active_model_id = self._settings_model.get_active_model_id()
+
+            # Se il modello da eliminare è quello attivo, cambia prima a un altro modello
+            if model_id == active_model_id:
+                models = self._model_model.get_model_names()
+                # Trova un modello diverso da quello da eliminare
+                new_model_id = None
+                for mid, name in models:
+                    if mid != model_id:
+                        new_model_id = mid
+                        break
+                
+                if new_model_id:
+                    self._settings_model.set_active_model_id(new_model_id)
+                    self._app_state.model_changed.emit(new_model_id)
+                    active_model_id = new_model_id  # Aggiorna per il controllo in delete_model
+                else:
+                    self._view.show_error("Non puoi eliminare l'unico modello disponibile.")
+                    return
+
+            # Ora elimina il modello (non è più quello attivo)
+            self._model_model.delete_model(model_id, active_model_id)
+
+            # Ricarica la lista modelli
+            self.refresh()
+
+            self._view.show_info("Modello eliminato con successo!")
+
+        except ValueError as e:
+            self._view.show_error(str(e))
+        except Exception as e:
+            self._view.show_error(f"Errore nell'eliminare il modello: {str(e)}")

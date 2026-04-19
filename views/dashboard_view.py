@@ -4,10 +4,95 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QComboBox, QTableWidget, QTableWidgetItem,
     QHeaderView, QGroupBox, QSpinBox, QGridLayout, QScrollArea,
-    QFrame, QColorDialog, QMessageBox
+    QFrame, QMessageBox, QListView, QStyledItemDelegate, QStyleOptionViewItem,
+    QStyle
 )
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QDoubleValidator
+from PyQt6.QtCore import Qt, pyqtSignal, QRect
+from PyQt6.QtGui import QColor, QDoubleValidator, QPalette, QFont, QTextOption
+
+
+class ModelComboDelegate(QStyledItemDelegate):
+    """Delegate personalizzato per disegnare pulsanti elimina accanto ai modelli custom."""
+    
+    delete_clicked = pyqtSignal(str)  # emette l'id del modello da eliminare
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._custom_model_ids = set()
+        self._delete_button_rects = {}  # Mappa index -> rect del bottone
+        
+    def set_custom_models(self, custom_ids: set[str]):
+        """Imposta quali modelli sono custom (e quindi hanno il pulsante elimina)."""
+        self._custom_model_ids = custom_ids
+        
+    def paint(self, painter, option, index):
+        """Disegna la riga con il nome del modello e il pulsante elimina se custom."""
+        from PyQt6.QtGui import QTextOption
+        
+        # Ottieni dati
+        model_id = index.data(Qt.ItemDataRole.UserRole)
+        text = index.data(Qt.ItemDataRole.DisplayRole)
+        
+        # Disegna lo sfondo
+        if option.state & QStyle.StateFlag.State_Selected:
+            painter.fillRect(option.rect, option.palette.highlight())
+        else:
+            painter.fillRect(option.rect, option.palette.base())
+            
+        # Calcola rettangoli
+        rect = option.rect
+        button_width = 24
+        button_height = 20
+        padding = 5
+        
+        # Se è un modello custom, riserva spazio per il pulsante
+        if model_id in self._custom_model_ids:
+            text_rect = QRect(rect.left() + padding, rect.top(), 
+                            rect.width() - button_width - padding * 3, rect.height())
+            button_rect = QRect(rect.right() - button_width - padding,
+                              rect.top() + (rect.height() - button_height) // 2,
+                              button_width, button_height)
+            self._delete_button_rects[index.row()] = button_rect
+            
+            # Disegna il pulsante elimina (rosso con X)
+            painter.save()
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor("#ff4444"))
+            painter.drawRoundedRect(button_rect, 3, 3)
+            
+            # Disegna la X
+            painter.setPen(QColor("white"))
+            painter.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+            painter.drawText(button_rect, Qt.AlignmentFlag.AlignCenter, "✕")
+            painter.restore()
+        else:
+            text_rect = QRect(rect.left() + padding, rect.top(), 
+                            rect.width() - padding * 2, rect.height())
+            if index.row() in self._delete_button_rects:
+                del self._delete_button_rects[index.row()]
+        
+        # Disegna il testo
+        painter.setPen(option.palette.text().color())
+        painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, text)
+        
+    def sizeHint(self, option, index):
+        """Restituisce la dimensione preferita per la riga."""
+        size = super().sizeHint(option, index)
+        size.setHeight(28)
+        return size
+        
+    def editorEvent(self, event, model, option, index):
+        """Gestisce il click sul pulsante elimina."""
+        if event.type() == event.Type.MouseButtonRelease:
+            model_id = index.data(Qt.ItemDataRole.UserRole)
+            if model_id in self._custom_model_ids:
+                # Verifica se il click è nel rettangolo del bottone
+                if index.row() in self._delete_button_rects:
+                    button_rect = self._delete_button_rects[index.row()]
+                    if button_rect.contains(int(event.position().x()), int(event.position().y())):
+                        self.delete_clicked.emit(model_id)
+                        return True
+        return super().editorEvent(event, model, option, index)
 
 
 class DashboardView(QWidget):
@@ -16,11 +101,14 @@ class DashboardView(QWidget):
     # Segnali emessi verso il controller
     salary_save_requested = pyqtSignal(str)  # importo come stringa
     model_selected = pyqtSignal(str)  # id del modello
-    custom_model_save_requested = pyqtSignal(str, list)  # nome, categorie
+    custom_model_save_requested = pyqtSignal(str, list, str)  # nome, categorie, model_id (vuoto per nuovo)
     custom_model_cancel_requested = pyqtSignal()
+    delete_model_requested = pyqtSignal(str)  # id del modello da eliminare
+    edit_model_requested = pyqtSignal(str)  # id del modello da modificare
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._editing_model_id = ""  # ID del modello in modifica (vuoto per nuovo)
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -89,12 +177,23 @@ class DashboardView(QWidget):
         group = QGroupBox("Modello di distribuzione")
         layout = QVBoxLayout(group)
 
-        # ComboBox modelli
+        # ComboBox modelli con pulsanti elimina per modelli custom
         combo_layout = QHBoxLayout()
         combo_layout.addWidget(QLabel("Modello:"))
         self._model_combo = QComboBox()
-        self._model_combo.setMinimumWidth(250)
+        self._model_combo.setMinimumWidth(300)
         self._model_combo.currentIndexChanged.connect(self._on_model_changed)
+        
+        # Usa un delegate personalizzato per disegnare i pulsanti elimina
+        self._model_delegate = ModelComboDelegate(self._model_combo)
+        self._model_combo.setItemDelegate(self._model_delegate)
+        
+        # Connetti il segnale delete del delegate
+        self._model_delegate.delete_clicked.connect(self._on_delete_model_clicked)
+        
+        # Intercetta gli eventi mouse sul combobox per gestire il click sul bottone elimina
+        self._model_combo.view().viewport().installEventFilter(self)
+        
         combo_layout.addWidget(self._model_combo)
         combo_layout.addStretch()
         layout.addLayout(combo_layout)
@@ -107,6 +206,7 @@ class DashboardView(QWidget):
 
         self._edit_model_btn = QPushButton("Modifica")
         self._edit_model_btn.setEnabled(False)
+        self._edit_model_btn.clicked.connect(self._on_edit_model_clicked)
         btn_layout.addWidget(self._edit_model_btn)
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
@@ -167,11 +267,18 @@ class DashboardView(QWidget):
 
     def _on_create_model_clicked(self) -> None:
         """Mostra l'editor per creare un nuovo modello."""
+        self._editing_model_id = ""
         self._custom_editor_widget.setVisible(True)
         self._create_model_btn.setEnabled(False)
         # Aggiungi una riga vuota di default
         if self._categories_layout.count() == 0:
             self._on_add_category()
+
+    def _on_edit_model_clicked(self) -> None:
+        """Emette il segnale per modificare il modello custom selezionato."""
+        model_id = self._model_combo.currentData()
+        if model_id:
+            self.edit_model_requested.emit(model_id)
 
     def _on_add_category(self) -> None:
         """Aggiunge una riga per una nuova categoria."""
@@ -187,26 +294,23 @@ class DashboardView(QWidget):
         name_input.setMaximumWidth(250)
         row_layout.addWidget(name_input)
 
-        # Percentuale
+        # Percentuale - solo spinbox senza bottoni
         pct_spin = QSpinBox()
         pct_spin.setRange(0, 100)
         pct_spin.setValue(0)
         pct_spin.setSuffix("%")
-        pct_spin.setMinimumWidth(90)
-        pct_spin.setMaximumWidth(110)
+        pct_spin.setFixedWidth(70)
         pct_spin.setMinimumHeight(32)
-        pct_spin.setButtonSymbols(QSpinBox.ButtonSymbols.UpDownArrows)
+        pct_spin.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
         pct_spin.setStyleSheet("""
             QSpinBox {
                 padding: 5px;
-                padding-right: 20px;
+                background-color: #2a2a3c;
+                border: 1px solid #3a3a4a;
+                border-radius: 4px;
             }
-            QSpinBox::up-button, QSpinBox::down-button {
-                width: 20px;
-                height: 14px;
-            }
-            QSpinBox::up-button:hover, QSpinBox::down-button:hover {
-                background-color: #4a4a5a;
+            QSpinBox:focus {
+                border: 1px solid #6c63ff;
             }
         """)
         pct_spin.valueChanged.connect(self._update_remaining_percentage)
@@ -230,17 +334,26 @@ class DashboardView(QWidget):
         color_layout.addStretch()
         row_layout.addLayout(color_layout)
 
-        # Label importo calcolato
-        amount_label = QLabel("— €")
-        amount_label.setStyleSheet("color: #aaa; min-width: 80px; font-weight: bold;")
-        row_layout.addWidget(amount_label)
-
         # Pulsante rimuovi
         remove_btn = QPushButton("✕")
-        remove_btn.setMaximumWidth(35)
-        remove_btn.setMinimumHeight(28)
+        remove_btn.setFixedSize(40, 36)
         remove_btn.setToolTip("Rimuovi categoria")
-        remove_btn.setStyleSheet("background-color: #ff4444; color: white; border: none; border-radius: 4px;")
+        remove_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ff4444;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                font-size: 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #ff6666;
+            }
+            QPushButton:pressed {
+                background-color: #cc3333;
+            }
+        """)
         remove_btn.clicked.connect(lambda: self._remove_category_row(row_widget))
         row_layout.addWidget(remove_btn)
 
@@ -250,14 +363,22 @@ class DashboardView(QWidget):
         row_widget.name_input = name_input
         row_widget.pct_spin = pct_spin
         row_widget.color_btn = color_btn
-        row_widget.amount_label = amount_label
 
         self._categories_layout.addWidget(row_widget)
         self._update_remaining_percentage()
 
     def _choose_color(self, button: QPushButton) -> None:
-        """Apre il dialog di selezione colore."""
-        color = QColorDialog.getColor()
+        """Apre il dialog di selezione colore nativo di Qt."""
+        from PyQt6.QtWidgets import QColorDialog
+        from PyQt6.QtGui import QColor
+        
+        # Estrai colore corrente
+        style = button.styleSheet()
+        current_color = "#4CAF50"
+        if "background-color:" in style:
+            current_color = style.split("background-color:")[1].split(";")[0].strip()
+        
+        color = QColorDialog.getColor(QColor(current_color), self, "Seleziona colore")
         if color.isValid():
             button.setStyleSheet(f"background-color: {color.name()}; border: none; min-height: 20px;")
 
@@ -267,27 +388,48 @@ class DashboardView(QWidget):
         self._update_remaining_percentage()
 
     def _update_remaining_percentage(self) -> None:
-        """Aggiorna la label della percentuale rimanente."""
+        """Aggiorna la label della percentuale rimanente con colore gradiente."""
         total = 0
+        spinboxes = []
         for i in range(self._categories_layout.count()):
             item = self._categories_layout.itemAt(i)
             if item and item.widget():
                 row = item.widget()
                 total += row.pct_spin.value()
+                spinboxes.append(row.pct_spin)
 
         remaining = 100 - total
+        
+        # Calcola il colore gradiente: verde (100%) -> rosso (0%)
+        # remaining va da 0 a 100
+        ratio = max(0, remaining) / 100.0
+        r = int(244 - (244 - 76) * ratio)   # 244 -> 76
+        g = int(67 + (175 - 67) * ratio)    # 67 -> 175
+        b = int(54 + (80 - 54) * ratio)     # 54 -> 80
+        color = f"#{r:02x}{g:02x}{b:02x}"
+
         if remaining > 0:
             self._remaining_pct_label.setText(f"Rimanente: {remaining}%")
-            self._remaining_pct_label.setStyleSheet("font-weight: bold; padding: 5px; color: #FFC107;")
+            self._remaining_pct_label.setStyleSheet(f"font-weight: bold; padding: 5px; color: {color};")
             self._save_custom_model_btn.setEnabled(False)
         elif remaining == 0:
-            self._remaining_pct_label.setText("✓ Somma: 100%")
-            self._remaining_pct_label.setStyleSheet("font-weight: bold; padding: 5px; color: #4CAF50;")
+            self._remaining_pct_label.setText("Rimanente: 0%")
+            self._remaining_pct_label.setStyleSheet("font-weight: bold; padding: 5px; color: #F44336;")
             self._save_custom_model_btn.setEnabled(True)
         else:
             self._remaining_pct_label.setText(f"Eccesso: {abs(remaining)}%")
             self._remaining_pct_label.setStyleSheet("font-weight: bold; padding: 5px; color: #F44336;")
             self._save_custom_model_btn.setEnabled(False)
+
+        # Limita le percentuali se si arriva a 100%
+        for spin in spinboxes:
+            current_max = spin.maximum()
+            if remaining <= 0:
+                # Se siamo a 100% o oltre, il max è il valore corrente
+                spin.setMaximum(spin.value())
+            else:
+                # Altrimenti il max è 100
+                spin.setMaximum(100)
 
     def _on_save_custom_model(self) -> None:
         """Emette il segnale per salvare il modello custom."""
@@ -318,10 +460,11 @@ class DashboardView(QWidget):
                     "color": color
                 })
 
-        self.custom_model_save_requested.emit(name, categories)
+        self.custom_model_save_requested.emit(name, categories, self._editing_model_id)
 
     def _on_cancel_custom_model(self) -> None:
         """Nasconde l'editor e resetta i campi."""
+        self._editing_model_id = ""
         self._custom_editor_widget.setVisible(False)
         self._create_model_btn.setEnabled(True)
         self._custom_model_name_input.clear()
@@ -337,18 +480,46 @@ class DashboardView(QWidget):
 
     def update_custom_model_amounts(self, salary: float) -> None:
         """Aggiorna gli importi calcolati per ogni categoria nell'editor."""
-        for i in range(self._categories_layout.count()):
-            item = self._categories_layout.itemAt(i)
-            if item and item.widget():
-                row = item.widget()
-                pct = row.pct_spin.value()
-                amount = (salary * pct) / 100
-                row.amount_label.setText(f"{amount:.2f} €")
+        pass  # le righe editor non mostrano importi calcolati
 
     def show_custom_model_editor(self, show: bool = True) -> None:
         """Mostra/nasconde l'editor del modello custom."""
         self._custom_editor_widget.setVisible(show)
         self._create_model_btn.setEnabled(not show)
+
+    def populate_model_editor(self, model: dict) -> None:
+        """Popola l'editor con i dati di un modello esistente per la modifica."""
+        # Imposta il nome
+        self._custom_model_name_input.setText(model.get("name", ""))
+
+        # Rimuovi tutte le righe esistenti
+        while self._categories_layout.count() > 0:
+            item = self._categories_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # Aggiungi una riga per ogni categoria, con i valori pre-compilati
+        for cat in model.get("categories", []):
+            self._on_add_category()
+            count = self._categories_layout.count()
+            if count > 0:
+                row = self._categories_layout.itemAt(count - 1).widget()
+                row.name_input.setText(cat.get("name", ""))
+                row.pct_spin.blockSignals(True)
+                row.pct_spin.setValue(cat.get("percentage", 0))
+                row.pct_spin.blockSignals(False)
+                color = cat.get("color", "#4CAF50")
+                row.color_btn.setStyleSheet(
+                    f"background-color: {color}; border: none; border-radius: 4px;"
+                )
+
+        # Aggiorna la label percentuale rimanente
+        self._update_remaining_percentage()
+
+        # Memorizza l'ID del modello in modifica e mostra l'editor
+        self._editing_model_id = model.get("id", "")
+        self._custom_editor_widget.setVisible(True)
+        self._create_model_btn.setEnabled(False)
 
     def is_custom_model_editor_visible(self) -> bool:
         """Restituisce True se l'editor custom è visibile."""
@@ -394,6 +565,10 @@ class DashboardView(QWidget):
         self._summary_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         # Rimuovi bordi extra
         self._summary_table.setFrameShape(QFrame.Shape.NoFrame)
+        # Disabilita editing celle e selezione
+        self._summary_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._summary_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        self._summary_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         content_layout.addWidget(self._summary_table)
 
         # Grafico a torta sotto la tabella
@@ -419,15 +594,27 @@ class DashboardView(QWidget):
         """Restituisce il valore inserito nel campo stipendio."""
         return self._salary_input.text().strip()
 
-    def set_models(self, models: list[tuple[str, str]]) -> None:
+    def set_models(self, models: list[tuple[str, str]], custom_model_ids: set[str] = None) -> None:
         """Popola il ComboBox con i modelli disponibili.
 
         Args:
             models: Lista di tuple (id, nome)
+            custom_model_ids: Set di ID dei modelli custom (per mostrare il pulsante elimina)
         """
         self._model_combo.clear()
+        self._custom_model_ids = custom_model_ids or set()
+        
+        # Pulisci i rettangoli dei bottoni precedenti
+        self._model_delegate._delete_button_rects.clear()
+        
+        # Aggiorna il delegate con i modelli custom
+        self._model_delegate.set_custom_models(self._custom_model_ids)
+        
         for model_id, name in models:
             self._model_combo.addItem(name, model_id)
+        
+        # Forza il repaint del combobox
+        self._model_combo.update()
 
     def set_selected_model(self, model_id: str) -> None:
         """Seleziona il modello specificato nel ComboBox."""
@@ -487,9 +674,14 @@ class DashboardView(QWidget):
 
         # Riga totale
         total_row = len(categories)
+        
+        # Colore vuoto per la riga totale
+        empty_color_item = QTableWidgetItem()
+        empty_color_item.setFlags(Qt.ItemFlag.NoItemFlags)
+        self._summary_table.setItem(total_row, 0, empty_color_item)
+        
         total_name = QTableWidgetItem("Totale")
-        total_name.setFont(self.font())
-        total_name_font = total_name.font()
+        total_name_font = QFont()
         total_name_font.setBold(True)
         total_name.setFont(total_name_font)
         self._summary_table.setItem(total_row, 1, total_name)
@@ -521,10 +713,59 @@ class DashboardView(QWidget):
     def _on_model_changed(self, index: int) -> None:
         """Gestisce il cambio di selezione del modello."""
         model_id = self._model_combo.itemData(index)
+        
         if model_id:
+            self._last_selected_model = model_id
             self.model_selected.emit(model_id)
+            
+            # Abilita il pulsante Modifica solo per modelli custom
+            is_custom = model_id in self._custom_model_ids
+            self._edit_model_btn.setEnabled(is_custom)
 
     def _on_save_salary(self) -> None:
         """Gestisce il click sul pulsante salva stipendio."""
         amount = self._salary_input.text().strip()
         self.salary_save_requested.emit(amount)
+
+    def _on_delete_model_clicked(self, model_id: str) -> None:
+        """Gestisce il click sul pulsante elimina di un modello custom."""
+        # Trova il nome del modello
+        model_name = ""
+        for i in range(self._model_combo.count()):
+            if self._model_combo.itemData(i) == model_id:
+                model_name = self._model_combo.itemText(i)
+                break
+        
+        # Chiedi conferma
+        reply = QMessageBox.question(
+            self,
+            "Conferma eliminazione",
+            f'Vuoi eliminare il modello "{model_name}"?\n\nQuesta azione non può essere annullata.',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            self.delete_model_requested.emit(model_id)
+
+    def eventFilter(self, obj, event):
+        """Intercetta gli eventi mouse sul viewport del combobox per gestire il click sul bottone elimina."""
+        if obj == self._model_combo.view().viewport():
+            if event.type() == event.Type.MouseButtonPress or event.type() == event.Type.MouseButtonRelease:
+                # Ottieni l'indice sotto il cursore
+                view = self._model_combo.view()
+                index = view.indexAt(event.position().toPoint())
+                if index.isValid():
+                    model_id = index.data(Qt.ItemDataRole.UserRole)
+                    if model_id in self._custom_model_ids:
+                        # Verifica se il click è nel rettangolo del bottone
+                        if index.row() in self._model_delegate._delete_button_rects:
+                            button_rect = self._model_delegate._delete_button_rects[index.row()]
+                            # Converti le coordinate
+                            viewport_pos = event.position().toPoint()
+                            if button_rect.contains(viewport_pos):
+                                if event.type() == event.Type.MouseButtonRelease:
+                                    # Emetti il segnale per eliminare
+                                    self._on_delete_model_clicked(model_id)
+                                return True  # Blocca l'evento
+        return super().eventFilter(obj, event)
