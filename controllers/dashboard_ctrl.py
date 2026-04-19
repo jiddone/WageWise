@@ -8,7 +8,7 @@ from PyQt6.QtCore import QObject
 from views.dashboard_view import DashboardView
 from core.app_state import AppState
 from core.period import get_current_period, format_period_label
-from core.validators import validate_amount
+from core.validators import validate_amount, validate_model_categories
 from models.storage import Storage
 from models.settings_model import SettingsModel
 from models.model_model import ModelModel
@@ -48,6 +48,8 @@ class DashboardController(QObject):
         """Collega i segnali della view ai metodi del controller."""
         self._view.salary_save_requested.connect(self._on_save_salary)
         self._view.model_selected.connect(self._on_model_selected)
+        self._view.custom_model_save_requested.connect(self._on_save_custom_model)
+        self._view.custom_model_cancel_requested.connect(self._on_cancel_custom_model)
 
         # Connetti all'AppState per aggiornamenti
         self._app_state.salary_changed.connect(self._on_salary_changed)
@@ -146,3 +148,45 @@ class DashboardController(QObject):
     def _on_model_changed(self, model_id: str) -> None:
         """Reagisce ai cambiamenti di modello dall'AppState."""
         self._update_summary()
+
+    def _on_save_custom_model(self, name: str, categories: list) -> None:
+        """Gestisce il salvataggio di un modello custom.
+
+        Args:
+            name: Nome del modello
+            categories: Lista di dict con 'name', 'percentage', 'color'
+        """
+        # Valida le categorie
+        is_valid, errors = validate_model_categories(categories)
+        if not is_valid:
+            self._view.show_error("\n".join(errors))
+            return
+
+        # Crea il modello
+        try:
+            model_id = self._model_model.create_custom_model(name, categories)
+
+            # Aggiorna la lista modelli nella view
+            models = self._model_model.get_model_names()
+            self._view.set_models(models)
+
+            # Seleziona il nuovo modello
+            self._view.set_selected_model(model_id)
+            self._settings_model.set_active_model_id(model_id)
+            self._app_state.current_model_id = model_id
+
+            # Nascondi l'editor
+            self._view.show_custom_model_editor(False)
+
+            # Aggiorna la tabella riepilogativa
+            self._update_summary()
+
+            self._view.show_info(f"Modello '{name}' salvato con successo!")
+
+        except Exception as e:
+            self._view.show_error(f"Errore nel salvare il modello: {str(e)}")
+
+    def _on_cancel_custom_model(self) -> None:
+        """Gestisce l'annullamento della creazione modello custom."""
+        # La view già nasconde l'editor, qui possiamo fare pulizia aggiuntiva se necessario
+        pass
