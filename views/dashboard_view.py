@@ -20,10 +20,15 @@ class ModelComboDelegate(QStyledItemDelegate):
         super().__init__(parent)
         self._custom_model_ids = set()
         self._delete_button_rects = {}  # Mappa index -> rect del bottone
+        self._active_model_id = ""     # ID del modello attivo (per evidenziarlo)
         
     def set_custom_models(self, custom_ids: set[str]):
         """Imposta quali modelli sono custom (e quindi hanno il pulsante elimina)."""
         self._custom_model_ids = custom_ids
+
+    def set_active_model(self, model_id: str) -> None:
+        """Imposta quale modello è quello attivo (per evidenziarlo nella lista)."""
+        self._active_model_id = model_id
         
     def initStyleOption(self, option, index):
         """Override per garantire sempre un font con pointSize valido (evita warning QSS)."""
@@ -38,14 +43,18 @@ class ModelComboDelegate(QStyledItemDelegate):
         # Ottieni dati
         model_id = index.data(Qt.ItemDataRole.UserRole)
         text = index.data(Qt.ItemDataRole.DisplayRole)
+
+        # Evidenzia il modello attivo con un prefisso stella
+        if model_id == self._active_model_id:
+            text = f"★ {text}"
         
         # Disegna lo sfondo in base allo stato (selezione / hover / normale)
         if option.state & QStyle.StateFlag.State_Selected:
-            painter.fillRect(option.rect, option.palette.highlight())
+            painter.fillRect(option.rect, QColor("#6c63ff"))
         elif option.state & QStyle.StateFlag.State_MouseOver:
             painter.fillRect(option.rect, QColor("#3a3a5c"))
         else:
-            painter.fillRect(option.rect, option.palette.base())
+            painter.fillRect(option.rect, QColor("#2a2a3c"))
             
         # Calcola rettangoli
         rect = option.rect
@@ -82,7 +91,7 @@ class ModelComboDelegate(QStyledItemDelegate):
         # Disegna il testo con font esplicito (evita warning pointSize=-1 da QSS)
         safe_font = QFont("Arial", 10)
         painter.setFont(safe_font)
-        painter.setPen(option.palette.text().color())
+        painter.setPen(QColor("#ffffff"))
         painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, text)
         
     def sizeHint(self, option, index):
@@ -115,10 +124,13 @@ class DashboardView(QWidget):
     custom_model_cancel_requested = pyqtSignal()
     delete_model_requested = pyqtSignal(str)  # id del modello da eliminare
     edit_model_requested = pyqtSignal(str)  # id del modello da modificare
+    set_active_model_requested = pyqtSignal(str)  # id del modello da impostare come attivo
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._editing_model_id = ""  # ID del modello in modifica (vuoto per nuovo)
+        self._active_model_id = ""   # ID del modello attualmente attivo
+        self._custom_model_ids: set = set()
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -131,14 +143,6 @@ class DashboardView(QWidget):
         self._main_layout = QVBoxLayout(container)
         self._main_layout.setContentsMargins(20, 20, 20, 20)
         self._main_layout.setSpacing(20)
-
-        # Titolo pagina
-        title = QLabel("Dashboard")
-        title_font = QFont()
-        title_font.setPointSize(18)
-        title_font.setBold(True)
-        title.setFont(title_font)
-        self._main_layout.addWidget(title)
 
         # Sezione: Input stipendio
         self._setup_salary_section()
@@ -191,7 +195,7 @@ class DashboardView(QWidget):
         combo_layout = QHBoxLayout()
         combo_layout.addWidget(QLabel("Modello:"))
         self._model_combo = QComboBox()
-        self._model_combo.setMinimumWidth(300)
+        self._model_combo.setMinimumWidth(150)
         self._model_combo.currentIndexChanged.connect(self._on_model_changed)
         
         # Usa un delegate personalizzato per disegnare i pulsanti elimina
@@ -205,6 +209,13 @@ class DashboardView(QWidget):
         self._model_combo.view().viewport().installEventFilter(self)
         
         combo_layout.addWidget(self._model_combo)
+        
+        # Pulsante "Seleziona come attivo"
+        self._set_active_model_btn = QPushButton("Seleziona come attivo")
+        self._set_active_model_btn.setToolTip("Imposta questo modello come attivo per le spese")
+        self._set_active_model_btn.clicked.connect(self._on_set_active_model_clicked)
+        combo_layout.addWidget(self._set_active_model_btn)
+        
         combo_layout.addStretch()
         layout.addLayout(combo_layout)
 
@@ -230,7 +241,7 @@ class DashboardView(QWidget):
         """Configura l'editor per il modello personalizzato."""
         self._custom_editor_widget = QWidget()
         self._custom_editor_widget.setVisible(False)
-        self._custom_editor_widget.setStyleSheet("background-color: #2a2a3a; border-radius: 8px;")
+        self._custom_editor_widget.setProperty("class", "panel")
         editor_layout = QVBoxLayout(self._custom_editor_widget)
         editor_layout.setContentsMargins(20, 20, 20, 20)
         editor_layout.setSpacing(15)
@@ -257,7 +268,7 @@ class DashboardView(QWidget):
 
         # Label percentuale rimanente
         self._remaining_pct_label = QLabel("Rimanente: 100%")
-        self._remaining_pct_label.setStyleSheet("font-weight: bold; padding: 5px;")
+        self._remaining_pct_label.setProperty("class", "remaining-pct")
         editor_layout.addWidget(self._remaining_pct_label)
 
         # Pulsanti azione
@@ -312,17 +323,6 @@ class DashboardView(QWidget):
         pct_spin.setFixedWidth(70)
         pct_spin.setMinimumHeight(32)
         pct_spin.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
-        pct_spin.setStyleSheet("""
-            QSpinBox {
-                padding: 5px;
-                background-color: #2a2a3c;
-                border: 1px solid #3a3a4a;
-                border-radius: 4px;
-            }
-            QSpinBox:focus {
-                border: 1px solid #6c63ff;
-            }
-        """)
         pct_spin.valueChanged.connect(self._update_remaining_percentage)
         row_layout.addWidget(pct_spin)
 
@@ -339,7 +339,7 @@ class DashboardView(QWidget):
         color_layout.addWidget(color_btn)
         
         color_label = QLabel("Colore")
-        color_label.setStyleSheet("color: #888; font-size: 11px;")
+        color_label.setProperty("class", "subtitle")
         color_layout.addWidget(color_label)
         color_layout.addStretch()
         row_layout.addLayout(color_layout)
@@ -348,22 +348,9 @@ class DashboardView(QWidget):
         remove_btn = QPushButton("✕")
         remove_btn.setFixedSize(40, 36)
         remove_btn.setToolTip("Rimuovi categoria")
-        remove_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #ff4444;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-size: 16px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #ff6666;
-            }
-            QPushButton:pressed {
-                background-color: #cc3333;
-            }
-        """)
+        remove_btn.setProperty("class", "danger")
+        remove_btn.style().unpolish(remove_btn)
+        remove_btn.style().polish(remove_btn)
         remove_btn.clicked.connect(lambda: self._remove_category_row(row_widget))
         row_layout.addWidget(remove_btn)
 
@@ -645,6 +632,15 @@ class DashboardView(QWidget):
                 self._model_combo.setCurrentIndex(i)
                 break
 
+    def set_active_model_id(self, model_id: str) -> None:
+        """Aggiorna il modello attivo: evidenzialo nel ComboBox e aggiorna il pulsante."""
+        self._active_model_id = model_id
+        self._model_delegate.set_active_model(model_id)
+        self._model_combo.update()
+        # Forza il repaint della lista se è aperta
+        self._model_combo.view().update()
+        self._update_set_active_button_state()
+
     def get_selected_model_id(self) -> str:
         """Restituisce l'ID del modello selezionato."""
         return self._model_combo.currentData()
@@ -743,6 +739,27 @@ class DashboardView(QWidget):
             # Abilita il pulsante Modifica solo per modelli custom
             is_custom = model_id in self._custom_model_ids
             self._edit_model_btn.setEnabled(is_custom)
+            
+            # Aggiorna lo stato del pulsante "Seleziona come attivo"
+            self._update_set_active_button_state()
+
+    def _on_set_active_model_clicked(self) -> None:
+        """Gestisce il click sul pulsante 'Seleziona come attivo'."""
+        model_id = self._model_combo.currentData()
+        if model_id:
+            self.set_active_model_requested.emit(model_id)
+    
+    def _update_set_active_button_state(self) -> None:
+        """Aggiorna lo stato del pulsante 'Seleziona come attivo' in base al modello selezionato."""
+        model_id = self._model_combo.currentData()
+        is_already_active = (model_id == self._active_model_id) if model_id else True
+        self._set_active_model_btn.setEnabled(
+            model_id is not None and model_id != "" and not is_already_active
+        )
+        if is_already_active:
+            self._set_active_model_btn.setToolTip("Questo modello è già quello attivo")
+        else:
+            self._set_active_model_btn.setToolTip("Imposta questo modello come attivo per le spese")
 
     def _on_save_salary(self) -> None:
         """Gestisce il click sul pulsante salva stipendio."""

@@ -69,7 +69,7 @@ QComboBox {
     border: 1px solid #3a3a4c;
     border-radius: 6px;
     padding: 6px 10px;
-    min-width: 120px;
+    min-width: 150px;
 }
 QComboBox:hover {
     border-color: #6c63ff;
@@ -81,8 +81,18 @@ QComboBox::drop-down {
 QComboBox QAbstractItemView {
     background-color: #2a2a3c;
     color: #ffffff;
-    selection-background-color: #6c63ff;
     border: 1px solid #3a3a4c;
+    selection-background-color: #6c63ff;
+    outline: none;
+}
+QComboBox QAbstractItemView::item {
+    padding: 6px 10px;
+}
+QComboBox QAbstractItemView::item:hover {
+    background-color: #3a3a5c;
+}
+QComboBox QAbstractItemView::item:selected {
+    background-color: #6c63ff;
 }
 
 /* === QTableWidget === */
@@ -95,6 +105,9 @@ QTableWidget {
 }
 QTableWidget::item {
     padding: 6px;
+}
+QTableWidget::item:hover {
+    background-color: #3a3a5c;
 }
 QTableWidget::item:selected {
     background-color: #6c63ff;
@@ -132,6 +145,25 @@ QProgressBar[status="danger"]::chunk {
     background-color: #F44336;
 }
 
+/* === BudgetProgressBar === */
+BudgetProgressBar {
+    background-color: #3a3a5c;
+    border: none;
+    border-radius: 6px;
+}
+BudgetProgressBar::chunk {
+    border-radius: 6px;
+}
+BudgetProgressBar[status="ok"]::chunk {
+    background-color: #4CAF50;
+}
+BudgetProgressBar[status="warning"]::chunk {
+    background-color: #FFC107;
+}
+BudgetProgressBar[status="danger"]::chunk {
+    background-color: #F44336;
+}
+
 /* === QLabel === */
 QLabel {
     color: #ffffff;
@@ -142,11 +174,43 @@ QLabel[class="title"] {
     font-weight: bold;
 }
 QLabel[class="subtitle"] {
-    font-size: 11pt;
+    font-size: 9pt;
     color: #a0a0b0;
+}
+QLabel[class="remaining-pct"] {
+    font-weight: bold;
+    padding: 5px;
 }
 QLabel[class="error"] {
     color: #F44336;
+}
+
+/* === CategoryCard === */
+CategoryCard {
+    background-color: #2a2a3c;
+    border-radius: 8px;
+    border: 1px solid #3a3a5c;
+}
+
+/* === Panel widget (editor modelli, form colori) === */
+QWidget[class="panel"] {
+    background-color: #2a2a3c;
+    border-radius: 8px;
+}
+
+/* === Danger button (elimina, rimuovi) === */
+QPushButton[class="danger"] {
+    background-color: #ff4444;
+    color: #ffffff;
+    border: none;
+    border-radius: 6px;
+    padding: 4px 8px;
+}
+QPushButton[class="danger"]:hover {
+    background-color: #ff6666;
+}
+QPushButton[class="danger"]:pressed {
+    background-color: #cc3333;
 }
 
 /* === QGroupBox === */
