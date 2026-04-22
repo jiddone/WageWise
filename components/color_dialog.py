@@ -41,7 +41,7 @@ class CustomColorDialog(QDialog):
         
         # Sezione RGB con controlli ±1
         rgb_group = QWidget()
-        rgb_group.setStyleSheet("background-color: #2a2a3c; border-radius: 8px; padding: 10px;")
+        rgb_group.setProperty("class", "panel")
         rgb_layout = QGridLayout(rgb_group)
         rgb_layout.setSpacing(10)
         
@@ -103,18 +103,6 @@ class CustomColorDialog(QDialog):
         spin.setRange(0, 255)
         spin.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
         spin.setFixedWidth(60)
-        spin.setStyleSheet("""
-            QSpinBox {
-                padding: 5px;
-                background-color: #1e1e2e;
-                border: 1px solid #3a3a4a;
-                border-radius: 4px;
-                color: white;
-            }
-            QSpinBox:focus {
-                border: 1px solid #6c63ff;
-            }
-        """)
         return spin
         
     def _on_color_changed(self) -> None:

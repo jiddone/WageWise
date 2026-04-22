@@ -1,8 +1,18 @@
 """Componente Sidebar — Widget navigazione laterale."""
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QPushButton, QLabel
+import sys
+from pathlib import Path
+
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QPushButton, QLabel, QHBoxLayout
 from PyQt6.QtCore import pyqtSignal, Qt
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QPixmap, QIcon
+
+
+def get_base_path() -> Path:
+    """Restituisce il percorso base dell'app, funziona sia in sviluppo che da PyInstaller."""
+    if getattr(sys, 'frozen', False):
+        return Path(sys._MEIPASS)
+    return Path(__file__).parent.parent  # remont from components/ to root
 
 
 class Sidebar(QWidget):
@@ -24,22 +34,37 @@ class Sidebar(QWidget):
         layout.setContentsMargins(10, 20, 10, 20)
         layout.setSpacing(10)
 
-        # Logo / Nome app
-        logo = QLabel("💰 WageWise")
-        logo_font = QFont()
-        logo_font.setPointSize(16)
-        logo_font.setBold(True)
-        logo.setFont(logo_font)
-        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(logo)
+        # Logo / Nome app con icona
+        icon_layout = QHBoxLayout()
+        icon_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Usa l'icona grande (192x192 PNG)
+        icon_path = get_base_path() / 'assets' / 'icon' / 'android-chrome-192x192.png'
+        if icon_path.exists():
+            pixmap = QPixmap(str(icon_path))
+            scaled_pixmap = pixmap.scaled(100, 100, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            icon_label = QLabel()
+            icon_label.setPixmap(scaled_pixmap)
+            icon_layout.addStretch()
+            icon_layout.addWidget(icon_label)
+            icon_layout.addStretch()
+        else:
+            # Fallback emoji se l'icona non esiste
+            icon_label = QLabel("💰")
+            icon_label.setFont(QFont("", 24))
+            icon_layout.addStretch()
+            icon_layout.addWidget(icon_label)
+            icon_layout.addStretch()
+
+        layout.addLayout(icon_layout)
 
         # Spazio
         layout.addSpacing(30)
 
         # Pulsanti di navigazione
-        self._btn_dashboard = QPushButton("📊 Dashboard")
-        self._btn_expenses = QPushButton("💸 Spese")
-        self._btn_history = QPushButton("📈 Storico")
+        self._btn_dashboard = QPushButton("Dashboard")
+        self._btn_expenses = QPushButton("Spese")
+        self._btn_history = QPushButton("Storico")
 
         self._buttons = [
             self._btn_dashboard,

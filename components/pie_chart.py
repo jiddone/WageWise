@@ -25,6 +25,9 @@ class PieChart(QChartView):
 
         super().__init__(self._chart, parent)
 
+        # Background deve essere DOPO setChart per sovrascrivere il tema
+        self._chart.setBackgroundBrush(QColor("#1e2330"))  # bg-surface
+
         self._series = QPieSeries()
         self._series.setHoleSize(0.35)  # Stile donut
         self._series.setPieSize(0.8)

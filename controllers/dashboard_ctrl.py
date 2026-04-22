@@ -13,6 +13,7 @@ from models.storage import Storage
 from models.settings_model import SettingsModel
 from models.model_model import ModelModel
 from models.salary_model import SalaryModel
+from models.expense_model import ExpenseModel
 
 
 class DashboardController(QObject):
@@ -34,6 +35,7 @@ class DashboardController(QObject):
         self._settings_model = SettingsModel(self._storage)
         self._model_model = ModelModel(self._storage)
         self._salary_model = SalaryModel(self._storage)
+        self._expense_model = ExpenseModel(self._storage)
 
         # Ottieni riferimento all'AppState
         self._app_state = AppState.instance()
@@ -52,6 +54,7 @@ class DashboardController(QObject):
         self._view.custom_model_cancel_requested.connect(self._on_cancel_custom_model)
         self._view.delete_model_requested.connect(self._on_delete_model)
         self._view.edit_model_requested.connect(self._on_edit_model)
+        self._view.set_active_model_requested.connect(self._on_set_active_model)
 
         # Connetti all'AppState per aggiornamenti
         self._app_state.salary_changed.connect(self._on_salary_changed)
@@ -86,6 +89,7 @@ class DashboardController(QObject):
         # Seleziona il modello attivo
         active_model_id = self._settings_model.get_active_model_id()
         self._view.set_selected_model(active_model_id)
+        self._view.set_active_model_id(active_model_id)
         self._app_state.current_model_id = active_model_id
 
         # Aggiorna la tabella riepilogativa
@@ -135,14 +139,11 @@ class DashboardController(QObject):
         self._update_summary()
 
     def _on_model_selected(self, model_id: str) -> None:
-        """Gestisce la selezione di un nuovo modello."""
-        # Salva il modello come attivo
-        self._settings_model.set_active_model_id(model_id)
-
-        # Aggiorna l'AppState
-        self._app_state.current_model_id = model_id
-
-        # Aggiorna la tabella riepilogativa
+        """Gestisce la selezione di un modello nel ComboBox (solo anteprima).
+        
+        Il modello attivo cambia SOLO cliccando il pulsante 'Seleziona come attivo'.
+        """
+        # Aggiorna solo la tabella riepilogativa con il modello selezionato
         self._update_summary()
 
     def _on_salary_changed(self, amount: float) -> None:
@@ -177,6 +178,7 @@ class DashboardController(QObject):
                 model_id = self._model_model.create_custom_model(name, categories)
                 self._settings_model.set_active_model_id(model_id)
                 self._app_state.current_model_id = model_id
+                self._view.set_active_model_id(model_id)
                 self._view.show_info(f"Modello '{name}' salvato con successo!")
 
             # Aggiorna la lista modelli nella view
@@ -252,3 +254,47 @@ class DashboardController(QObject):
             self._view.show_error(str(e))
         except Exception as e:
             self._view.show_error(f"Errore nell'eliminare il modello: {str(e)}")
+
+    def _on_set_active_model(self, model_id: str) -> None:
+        """Imposta il modello selezionato come modello attivo."""
+        try:
+            if not model_id:
+                self._view.show_error("Nessun modello selezionato.")
+                return
+
+            # Ottieni il modello attuale
+            current_active_id = self._settings_model.get_active_model_id()
+
+            # Se è già il modello attivo, non fare nulla
+            if model_id == current_active_id:
+                self._view.show_info("Questo modello è già quello attivo.")
+                return
+
+            # Verifica che non ci siano spese registrate per il mese corrente
+            salary_day = self._settings_model.get_salary_day()
+            period_start, period_end = get_current_period(salary_day)
+            salary = self._salary_model.get_salary_for_period(period_start, period_end)
+            if salary:
+                self._expense_model._load()  # ricarica dati aggiornati
+                total_expenses = self._expense_model.get_total_by_period(salary["id"])
+                if total_expenses > 0:
+                    self._view.show_error(
+                        "Impossibile cambiare il modello attivo: "
+                        "ci sono spese registrate per il mese corrente.\n"
+                        "Per cambiare modello, elimina prima tutte le spese del mese corrente."
+                    )
+                    return
+
+            # Salva il nuovo modello attivo
+            self._settings_model.set_active_model_id(model_id)
+
+            # Aggiorna l'AppState (emette segnale model_changed)
+            self._app_state.current_model_id = model_id
+
+            # Aggiorna l'indicatore nella view
+            self._view.set_active_model_id(model_id)
+
+            self._view.show_info("Modello attivo aggiornato con successo!")
+
+        except Exception as e:
+            self._view.show_error(f"Errore nell'impostare il modello attivo: {str(e)}")

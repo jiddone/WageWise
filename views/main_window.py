@@ -13,6 +13,8 @@ from views.dashboard_view import DashboardView
 from views.expenses_view import ExpensesView
 from views.history_view import HistoryView
 from controllers.dashboard_ctrl import DashboardController
+from controllers.expenses_ctrl import ExpensesController
+from controllers.history_ctrl import HistoryController
 
 
 class MainWindow(QMainWindow):
@@ -68,9 +70,21 @@ class MainWindow(QMainWindow):
 
     def _setup_controllers(self) -> None:
         """Inizializza i controller per ogni pagina."""
-        # Controller Dashboard (unico implementato in Epica 1)
+        # Controller Dashboard
         self._dashboard_ctrl = DashboardController(
             self._dashboard_view,
+            self._data_path
+        )
+
+        # Controller Spese (Epica 3)
+        self._expenses_ctrl = ExpensesController(
+            self._expenses_view,
+            self._data_path
+        )
+
+        # Controller Storico (Epica 4)
+        self._history_ctrl = HistoryController(
+            self._history_view,
             self._data_path
         )
 
@@ -81,3 +95,7 @@ class MainWindow(QMainWindow):
         # Chiama refresh sul controller della pagina attiva
         if index == 0 and hasattr(self, '_dashboard_ctrl'):
             self._dashboard_ctrl.refresh()
+        elif index == 1 and hasattr(self, '_expenses_ctrl'):
+            self._expenses_ctrl.refresh()
+        elif index == 2 and hasattr(self, '_history_ctrl'):
+            self._history_ctrl.refresh()
