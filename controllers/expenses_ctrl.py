@@ -92,10 +92,10 @@ class ExpensesController(QObject):
             self._current_salary_id = ""
             self._app_state.current_salary = 0.0
             self._view.set_add_button_enabled(False)
-            self._view.show_alert(
-                "Nessuno stipendio registrato per questo periodo. "
-                "Vai alla Dashboard per registrare lo stipendio.",
-                "warning"
+            QMessageBox.warning(
+                self._view,
+                "Nessuno stipendio",
+                "Nessuno stipendio registrato per questo periodo.\nVai alla Dashboard per registrare lo stipendio."
             )
             # Se non c'è stipendio, usa il modello attivo dall'AppState
             active_model_id = self._app_state.current_model_id

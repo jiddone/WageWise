@@ -1,70 +1,72 @@
-"""BarChart — Grafico a barre orizzontali riutilizzabile."""
+"""Componente BarChart — Grafico a barre orizzontali riutilizzabile con QtCharts."""
 
-from PyQt6.QtCharts import (
-    QChart, QChartView, QHorizontalBarSeries, QBarSet,
-    QBarCategoryAxis, QValueAxis
-)
-from PyQt6.QtWidgets import QWidget
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QFont
 
+from PyQt6.QtCharts import QChart, QChartView, QHorizontalBarSeries, QBarSet, QBarCategoryAxis, QValueAxis
+
 
 class BarChart(QChartView):
-    """Grafico a barre orizzontali per confrontare budget vs speso."""
+    """Grafico a barre orizzontali per confrontare budget vs speso.
+
+    Metodi principali:
+    - set_data(periods, budget_values, spent_values) → aggiorna le barre
+      Ogni dict: {"name": str, "value": float, "color": str}
+    - clear() → rimuove tutte le barre
+    """
 
     def __init__(self, parent=None):
-        super().__init__(parent)
+        # Crea il chart
         self._chart = QChart()
         self._chart.setAnimationOptions(QChart.AnimationOption.SeriesAnimations)
+        self._chart.setTitle("Budget vs Spesa")
         self._chart.setTheme(QChart.ChartTheme.ChartThemeDark)
-        self._chart.setBackgroundBrush(QColor("#2a2a3c"))
-        self._chart.setTitleBrush(QColor("#ffffff"))
-        self._chart.setTitleFont(QFont("Arial", 12, QFont.Weight.Bold))
-        self._chart.legend().setAlignment(Qt.AlignmentFlag.AlignBottom)
-        self._chart.layout().setContentsMargins(10, 10, 10, 10)
-        self.setChart(self._chart)
-        
-        self.setRenderHint(self.renderHints())
-        self.setStyleSheet("border: none; background: transparent;")
+
+        super().__init__(self._chart, parent)
+
+        # Background deve essere DOPO setChart per sovrascrivere il tema
+        self._chart.setBackgroundBrush(QColor("#1e2330"))  # bg-surface
+
+        self._series = QHorizontalBarSeries()
+        self._series.setBarWidth(0.6)
+        self._series.setLabelsVisible(True)
+        self._series.setLabelsFormat("@value €")
+        self._series.setLabelsPosition(QHorizontalBarSeries.LabelsPosition.LabelsInsideEnd)
+
+        self._chart.addSeries(self._series)
+
+        # Dati correnti per ricalcolo colori
+        self._budget_values: list[float] = []
+        self._spent_values: list[float] = []
 
     def set_data(self, periods: list[str], budget_values: list[float],
                  spent_values: list[float]) -> None:
-        """Imposta i dati del grafico.
-        
+        """Aggiorna il grafico con nuovi dati.
+
         Args:
             periods: Lista di etichette per i periodi (es. ["Gen 2025", "Feb 2025"])
             budget_values: Lista di valori budget per ogni periodo
             spent_values: Lista di valori spesi per ogni periodo
         """
-        self._chart.removeAllSeries()
-        
-        # Rimuovi assi esistenti
-        for axis in self._chart.axes():
-            self._chart.removeAxis(axis)
+        self._budget_values = budget_values
+        self._spent_values = spent_values
+
+        self._series.clear()
 
         if not periods:
             self._chart.legend().setVisible(False)
             return
 
-        # Crea la serie orizzontale
-        series = QHorizontalBarSeries()
-        series.setBarWidth(0.6)
-        series.setLabelsVisible(True)
-        series.setLabelsFormat("@value €")
-        series.setLabelsPosition(QHorizontalBarSeries.LabelsPosition.LabelsInsideEnd)
-
-        # Crea un QBarSet per il Budget (tutte le barre budget sono blu)
+        # Crea un QBarSet per il Budget
         budget_set = QBarSet("Budget")
-        budget_set.setColor(QColor("#2196F3"))  # Blu
+        budget_set.setColor(QColor("#2196F3"))
         budget_set.setBorderColor(QColor("#2196F3"))
         for budget in budget_values:
             budget_set.append(budget)
-        series.append(budget_set)
+        self._series.append(budget_set)
 
-        # Crea un solo QBarSet per la spesa con colore dinamico basato sulla % attuale
-        # Il colore varia da verde (0% del budget) a rosso (100%+ del budget)
-        # Calcola colore in base all'ultimo valore (periodo corrente)
-        spent_color = QColor("#4CAF50")  # Default verde
+        # Crea un QBarSet per la spesa con colore dinamico
+        spent_color = QColor("#4CAF50")
         if budget_values and spent_values:
             last_budget = budget_values[-1]
             last_spent = spent_values[-1]
@@ -80,33 +82,39 @@ class BarChart(QChartView):
         spent_set.setBorderColor(spent_color)
         for spent in spent_values:
             spent_set.append(spent)
-        series.append(spent_set)
+        self._series.append(spent_set)
 
-        self._chart.addSeries(series)
+        # Rimuovi assi esistenti
+        for axis in self._chart.axes():
+            self._chart.removeAxis(axis)
 
-        # Asse Y (categorie/periodi) - verticale con etichette
+        # Asse Y (categorie/periodi)
         axis_y = QBarCategoryAxis()
         axis_y.append(periods)
         axis_y.setLabelsFont(QFont("Arial", 11))
         axis_y.setLabelsColor(QColor("#ffffff"))
         axis_y.setGridLineVisible(False)
         self._chart.addAxis(axis_y, Qt.AlignmentFlag.AlignLeft)
-        series.attachAxis(axis_y)
+        self._series.attachAxis(axis_y)
 
-        # Asse X (valori) - orizzontale
+        # Asse X (valori)
         axis_x = QValueAxis()
-        axis_x.setLabelFormat("%.0f €")
+        axis_x.setLabelFormat("%.0f")
         axis_x.setLabelsFont(QFont("Arial", 10))
         axis_x.setLabelsColor(QColor("#a0a0b0"))
         axis_x.setGridLineColor(QColor("#3a3a5c"))
-        
-        # Calcola il range massimo
+
         max_value = max(max(budget_values) if budget_values else 0,
                        max(spent_values) if spent_values else 0)
-        axis_x.setRange(0, max_value * 1.2)  # 20% di margine
+        if max_value <= 0:
+            max_value = 100  # Default minimo per evitare assi invisibili
+        axis_x.setRange(0, max_value * 1.2)
         
+        # Aggiungi label "€" manualmente vicino all'asse
+        self._chart.setTitle("Budget vs Spesa (€)")
+
         self._chart.addAxis(axis_x, Qt.AlignmentFlag.AlignBottom)
-        series.attachAxis(axis_x)
+        self._series.attachAxis(axis_x)
 
         # Leggenda
         self._chart.legend().setVisible(True)
@@ -114,10 +122,8 @@ class BarChart(QChartView):
         self._chart.legend().setLabelColor(QColor("#a0a0b0"))
         self._chart.legend().setBackgroundVisible(False)
 
-    def set_title(self, title: str) -> None:
-        """Imposta il titolo del grafico."""
-        self._chart.setTitle(title)
-
     def clear(self) -> None:
-        """Rimuove tutte le serie dal grafico."""
-        self._chart.removeAllSeries()
+        """Rimuove tutte le barre dal grafico."""
+        self._series.clear()
+        self._budget_values = []
+        self._spent_values = []

@@ -152,8 +152,13 @@ class HistoryController(QObject):
                 period_start, period_end = get_period_for_date(
                     sal_date, self._settings_model.get_salary_day()
                 )
-                # Usa la fine del periodo come label (mese in cui terminano le spese)
-                period_label = period_end.strftime("%b %Y")
+                # Mesi italiani
+                month_names = {
+                    1: "Gen", 2: "Feb", 3: "Mar", 4: "Apr",
+                    5: "Mag", 6: "Giu", 7: "Lug", 8: "Ago",
+                    9: "Set", 10: "Ott", 11: "Nov", 12: "Dic"
+                }
+                period_label = f"{month_names[period_end.month]} {period_end.year}"
             except ValueError:
                 continue
 

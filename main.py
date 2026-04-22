@@ -43,7 +43,7 @@ def main():
             app.setStyleSheet(f.read())
 
     # Imposta icona applicazione
-    icon_path = base_path / 'assets' / 'icon.ico'
+    icon_path = base_path / 'assets' / 'icon' / 'favicon.ico'
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
 
