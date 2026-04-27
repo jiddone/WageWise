@@ -1,18 +1,10 @@
 """Componente Sidebar — Widget navigazione laterale."""
 
-import sys
-from pathlib import Path
-
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QPushButton, QLabel, QHBoxLayout
 from PyQt6.QtCore import pyqtSignal, Qt
-from PyQt6.QtGui import QFont, QPixmap, QIcon
+from PyQt6.QtGui import QFont, QPixmap
 
-
-def get_base_path() -> Path:
-    """Restituisce il percorso base dell'app, funziona sia in sviluppo che da PyInstaller."""
-    if getattr(sys, 'frozen', False):
-        return Path(sys._MEIPASS)
-    return Path(__file__).parent.parent  # remont from components/ to root
+from core.runtime_paths import get_sidebar_logo_path
 
 
 class Sidebar(QWidget):
@@ -39,7 +31,7 @@ class Sidebar(QWidget):
         icon_layout.setContentsMargins(0, 0, 0, 0)
 
         # Usa l'icona grande (192x192 PNG)
-        icon_path = get_base_path() / 'assets' / 'icon' / 'android-chrome-192x192.png'
+        icon_path = get_sidebar_logo_path()
         if icon_path.exists():
             pixmap = QPixmap(str(icon_path))
             scaled_pixmap = pixmap.scaled(100, 100, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)

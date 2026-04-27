@@ -19,6 +19,7 @@ class HistoryView(QWidget):
     salary_day_changed = pyqtSignal(int)  # nuovo salary_day
     months_changed = pyqtSignal(int)  # numero di mesi da visualizzare
     export_requested = pyqtSignal(int)  # richiesta esportazione PDF
+    reset_data_requested = pyqtSignal()  # richiesta reset dati applicazione
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -50,6 +51,9 @@ class HistoryView(QWidget):
 
         # Sezione: Esportazione PDF
         self._setup_export_section()
+
+        # Sezione: Reset dati
+        self._setup_reset_section()
 
         # Spazio finale
         self._main_layout.addStretch()
@@ -165,6 +169,25 @@ class HistoryView(QWidget):
 
         self._main_layout.addWidget(group)
 
+    def _setup_reset_section(self) -> None:
+        """Configura la sezione reset dati applicazione."""
+        group = QGroupBox("Reset Dati")
+        layout = QHBoxLayout(group)
+        layout.setSpacing(15)
+
+        warning_label = QLabel(
+            "Azzera stipendi, spese e modello attivo, riportando l'app al primo avvio."
+        )
+        warning_label.setWordWrap(True)
+        layout.addWidget(warning_label, 1)
+
+        self._reset_data_btn = QPushButton("Resetta dati")
+        self._reset_data_btn.setObjectName("dangerBtn")
+        self._reset_data_btn.clicked.connect(self._on_reset_data_clicked)
+        layout.addWidget(self._reset_data_btn)
+
+        self._main_layout.addWidget(group)
+
     # === Metodi pubblici per il controller ===
 
     # === Metodi pubblici per il controller ===
@@ -230,3 +253,7 @@ class HistoryView(QWidget):
         """Gestisce il cambio del numero di mesi."""
         months = self._months_spin.value()
         self.months_changed.emit(months)
+
+    def _on_reset_data_clicked(self) -> None:
+        """Gestisce il click sul pulsante reset dati."""
+        self.reset_data_requested.emit()

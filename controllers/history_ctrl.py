@@ -1,5 +1,6 @@
 """Controller Storico — Logica Pagina 3."""
 
+import copy
 from datetime import date
 from pathlib import Path
 
@@ -9,16 +10,10 @@ from PyQt6.QtWidgets import QMessageBox, QFileDialog
 from views.history_view import HistoryView
 from core.app_state import AppState
 from models.storage import Storage
-from models.settings_model import SettingsModel
-from models.model_model import ModelModel
-from models.salary_model import SalaryModel
-from models.expense_model import ExpenseModel
-
-from reportlab.lib.pagesizes import A4
-from reportlab.lib import colors
-from reportlab.lib.units import cm
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from models.settings_model import SettingsModel, DEFAULT_SETTINGS
+from models.model_model import ModelModel, DEFAULT_MODELS
+from models.salary_model import SalaryModel, DEFAULT_SALARIES
+from models.expense_model import ExpenseModel, DEFAULT_EXPENSES
 
 
 class HistoryController(QObject):
@@ -61,6 +56,7 @@ class HistoryController(QObject):
         self._view.salary_day_changed.connect(self._on_salary_day_changed)
         self._view.months_changed.connect(self._on_months_changed)
         self._view.export_requested.connect(self._on_export_requested)
+        self._view.reset_data_requested.connect(self._on_reset_data_requested)
 
     def refresh(self) -> None:
         """Aggiorna la view con i dati correnti."""
@@ -190,11 +186,11 @@ class HistoryController(QObject):
 
     def _on_export_requested(self, months: int) -> None:
         """Gestisce la richiesta di esportazione PDF dello storico."""
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib import colors
-        from reportlab.lib.units import cm
-        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        try:
+            self._import_reportlab()
+        except RuntimeError as exc:
+            QMessageBox.critical(self._view, "Esportazione non disponibile", str(exc))
+            return
 
         # Chiedi dove salvare il file
         file_path, _ = QFileDialog.getSaveFileName(
@@ -220,8 +216,55 @@ class HistoryController(QObject):
                 f"Errore durante l'esportazione:\n{str(e)}"
             )
 
+    def _on_reset_data_requested(self) -> None:
+        """Azzera tutti i dati applicativi e riporta l'app allo stato iniziale."""
+        answer = QMessageBox.warning(
+            self._view,
+            "Conferma reset dati",
+            (
+                "Questa operazione elimina tutti gli stipendi, tutte le spese e il modello attivo.\n\n"
+                "L'app verrà riportata allo stato di primo avvio.\n\n"
+                "Vuoi continuare?"
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        self._reset_application_data()
+        self._current_months = 3
+        self._view.set_months(self._current_months)
+        self._app_state.refresh_from_settings()
+
+        QMessageBox.information(
+            self._view,
+            "Reset completato",
+            "I dati dell'applicazione sono stati azzerati."
+        )
+
+    def _reset_application_data(self) -> None:
+        """Ripristina i file JSON allo stato di primo avvio."""
+        self._storage.write_json(SettingsModel.FILENAME, copy.deepcopy(DEFAULT_SETTINGS))
+        self._storage.write_json(ModelModel.FILENAME, copy.deepcopy(DEFAULT_MODELS))
+        self._storage.write_json(SalaryModel.FILENAME, copy.deepcopy(DEFAULT_SALARIES))
+        self._storage.write_json(ExpenseModel.FILENAME, copy.deepcopy(DEFAULT_EXPENSES))
+
+        self._settings_model.refresh()
+        self._model_model.refresh()
+        self._salary_model.refresh()
+        self._expense_model.refresh()
+
     def _generate_pdf(self, file_path: str, months: int) -> None:
         """Genera il PDF con lo storico degli ultimi N mesi."""
+        reportlab = self._import_reportlab()
+        SimpleDocTemplate = reportlab["SimpleDocTemplate"]
+        Paragraph = reportlab["Paragraph"]
+        Spacer = reportlab["Spacer"]
+        getSampleStyleSheet = reportlab["getSampleStyleSheet"]
+        ParagraphStyle = reportlab["ParagraphStyle"]
+        A4 = reportlab["A4"]
+
         doc = SimpleDocTemplate(file_path, pagesize=A4)
         elements = []
         styles = getSampleStyleSheet()
@@ -336,3 +379,24 @@ class HistoryController(QObject):
             elements.append(Spacer(1, 20))
 
         doc.build(elements)
+
+    def _import_reportlab(self) -> dict[str, object]:
+        """Importa reportlab solo quando serve l'export PDF."""
+        try:
+            from reportlab.lib.pagesizes import A4
+            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        except ImportError as exc:
+            raise RuntimeError(
+                "L'esportazione PDF richiede la dipendenza 'reportlab'. "
+                "Rigenera l'eseguibile con tutte le dipendenze installate."
+            ) from exc
+
+        return {
+            "A4": A4,
+            "SimpleDocTemplate": SimpleDocTemplate,
+            "Paragraph": Paragraph,
+            "Spacer": Spacer,
+            "getSampleStyleSheet": getSampleStyleSheet,
+            "ParagraphStyle": ParagraphStyle,
+        }
