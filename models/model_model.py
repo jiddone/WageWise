@@ -73,8 +73,15 @@ class ModelModel:
     def _save(self) -> None:
         self._storage.write_json(self.FILENAME, self._data)
 
+    def refresh(self) -> None:
+        """Ricarica i dati dal disco."""
+        self._load()
+
     def get_all_models(self) -> list[dict]:
         return list(self._data.get("models", []))
+
+    def has_model(self, model_id: str) -> bool:
+        return self._find_model(model_id) is not None
 
     def get_model_by_id(self, model_id: str) -> dict | None:
         for model in self._data.get("models", []):
@@ -89,9 +96,11 @@ class ModelModel:
         return [m for m in self._data.get("models", []) if not m.get("is_builtin", False)]
 
     def get_categories_for_model(self, model_id: str) -> list[dict]:
+        if not model_id:
+            return []
         model = self.get_model_by_id(model_id)
         if model is None:
-            return []
+            raise KeyError(f"Modello '{model_id}' non trovato")
         return list(model.get("categories", []))
 
     def get_model_names(self) -> list[tuple[str, str]]:

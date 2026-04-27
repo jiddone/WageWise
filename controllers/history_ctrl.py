@@ -8,7 +8,6 @@ from PyQt6.QtWidgets import QMessageBox, QFileDialog
 
 from views.history_view import HistoryView
 from core.app_state import AppState
-from core.period import get_period_for_date, clamp_day_to_month
 from models.storage import Storage
 from models.settings_model import SettingsModel
 from models.model_model import ModelModel
@@ -65,12 +64,14 @@ class HistoryController(QObject):
 
     def refresh(self) -> None:
         """Aggiorna la view con i dati correnti."""
-        # Ricarica i dati dal disco per avere spese aggiornate
-        self._expense_model._load()
-        self._salary_model._load()
+        self._settings_model.refresh()
+        self._model_model.refresh()
+        self._expense_model.refresh()
+        self._salary_model.refresh()
         
         # Imposta salary_day
         salary_day = self._settings_model.get_salary_day()
+        self._salary_model.ensure_period_metadata(salary_day)
         self._view.set_salary_day(salary_day)
 
         # Aggiorna storico stipendi
@@ -91,8 +92,8 @@ class HistoryController(QObject):
         for sal in reversed(salaries):  # Dal più recente
             try:
                 sal_date = date.fromisoformat(sal["date"])
-                period_start, period_end = get_period_for_date(
-                    sal_date, self._settings_model.get_salary_day()
+                period_start, period_end = self._salary_model.get_period_bounds(
+                    sal, self._settings_model.get_salary_day()
                 )
                 period_label = f"{period_start.strftime('%d/%m/%Y')} - {period_end.strftime('%d/%m/%Y')}"
                 date_label = sal_date.strftime("%d/%m/%Y")
@@ -115,7 +116,7 @@ class HistoryController(QObject):
         self._view.set_salaries(salaries_data)
 
     def _update_categories(self) -> None:
-        pass  # rimosso — selettore categoria non più presente
+        return
 
     def _update_charts_and_tables(self) -> None:
         """Aggiorna grafici e tabelle in base ai filtri selezionati."""
@@ -148,9 +149,8 @@ class HistoryController(QObject):
 
         for sal in salaries:
             try:
-                sal_date = date.fromisoformat(sal["date"])
-                period_start, period_end = get_period_for_date(
-                    sal_date, self._settings_model.get_salary_day()
+                _, period_end = self._salary_model.get_period_bounds(
+                    sal, self._settings_model.get_salary_day()
                 )
                 # Mesi italiani
                 month_names = {
@@ -173,6 +173,8 @@ class HistoryController(QObject):
 
     def _on_salary_day_changed(self, day: int) -> None:
         """Gestisce il cambio di salary_day."""
+        previous_day = self._settings_model.get_salary_day()
+        self._salary_model.ensure_period_metadata(previous_day)
         self._settings_model.set_salary_day(day)
         self._app_state.settings_changed.emit()
         QMessageBox.information(
@@ -257,12 +259,11 @@ class HistoryController(QObject):
         # Ordina cronologicamente (dal più vecchio al più recente)
         salaries_in_range.reverse()
 
-        salary_day = self._settings_model.get_salary_day()
-
         for sal in salaries_in_range:
             try:
-                sal_date = date.fromisoformat(sal["date"])
-                period_start, period_end = get_period_for_date(sal_date, salary_day)
+                period_start, period_end = self._salary_model.get_period_bounds(
+                    sal, self._settings_model.get_salary_day()
+                )
                 period_label = f"{period_start.strftime('%d/%m/%Y')} - {period_end.strftime('%d/%m/%Y')}"
             except ValueError:
                 continue
@@ -284,7 +285,13 @@ class HistoryController(QObject):
             if expenses:
                 # Crea tabella spese
                 table_data = [["Data", "Descrizione", "Categoria", "Importo"]]
-                category_names = {cat["id"]: cat["name"] for cat in self._model_model.get_categories_for_model(sal.get("model_id", ""))}
+                try:
+                    categories = self._model_model.get_categories_for_model(
+                        sal.get("model_id", "")
+                    )
+                except KeyError:
+                    categories = []
+                category_names = {cat["id"]: cat["name"] for cat in categories}
 
                 for exp in expenses:
                     try:

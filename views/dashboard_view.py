@@ -131,6 +131,7 @@ class DashboardView(QWidget):
         self._editing_model_id = ""  # ID del modello in modifica (vuoto per nuovo)
         self._active_model_id = ""   # ID del modello attualmente attivo
         self._custom_model_ids: set = set()
+        self._last_selected_model = ""
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -610,6 +611,7 @@ class DashboardView(QWidget):
             models: Lista di tuple (id, nome)
             custom_model_ids: Set di ID dei modelli custom (per mostrare il pulsante elimina)
         """
+        self._model_combo.blockSignals(True)
         self._model_combo.clear()
         self._custom_model_ids = custom_model_ids or set()
         
@@ -621,16 +623,28 @@ class DashboardView(QWidget):
         
         for model_id, name in models:
             self._model_combo.addItem(name, model_id)
+
+        self._model_combo.setCurrentIndex(-1)
+        self._model_combo.blockSignals(False)
+        self._edit_model_btn.setEnabled(False)
+        self._update_set_active_button_state()
         
         # Forza il repaint del combobox
         self._model_combo.update()
 
     def set_selected_model(self, model_id: str) -> None:
         """Seleziona il modello specificato nel ComboBox."""
+        selected_index = -1
         for i in range(self._model_combo.count()):
             if self._model_combo.itemData(i) == model_id:
-                self._model_combo.setCurrentIndex(i)
+                selected_index = i
                 break
+        self._model_combo.blockSignals(True)
+        self._model_combo.setCurrentIndex(selected_index)
+        self._model_combo.blockSignals(False)
+        self._last_selected_model = model_id if selected_index >= 0 else ""
+        self._edit_model_btn.setEnabled(model_id in self._custom_model_ids and selected_index >= 0)
+        self._update_set_active_button_state()
 
     def set_active_model_id(self, model_id: str) -> None:
         """Aggiorna il modello attivo: evidenzialo nel ComboBox e aggiorna il pulsante."""

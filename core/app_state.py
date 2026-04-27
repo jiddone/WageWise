@@ -71,7 +71,11 @@ class AppState(QObject):
 
         # Carica lo stato iniziale
         self._salary_day = self._settings_model.get_salary_day()
-        self._current_model_id = self._settings_model.get_active_model_id()
+        active_model_id = self._settings_model.get_active_model_id()
+        if self._model_model.has_model(active_model_id):
+            self._current_model_id = active_model_id
+        else:
+            self._current_model_id = ""
 
     # === Proprietà ===
 
@@ -145,5 +149,9 @@ class AppState(QObject):
         """Ricarica lo stato dai settings su disco."""
         if self._settings_model:
             self._salary_day = self._settings_model.get_salary_day()
-            self._current_model_id = self._settings_model.get_active_model_id()
+            active_model_id = self._settings_model.get_active_model_id()
+            if self._model_model and self._model_model.has_model(active_model_id):
+                self._current_model_id = active_model_id
+            else:
+                self._current_model_id = ""
             self.settings_changed.emit()

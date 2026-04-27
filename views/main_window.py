@@ -15,6 +15,7 @@ from views.history_view import HistoryView
 from controllers.dashboard_ctrl import DashboardController
 from controllers.expenses_ctrl import ExpensesController
 from controllers.history_ctrl import HistoryController
+from core.app_state import AppState
 
 
 class MainWindow(QMainWindow):
@@ -88,6 +89,13 @@ class MainWindow(QMainWindow):
             self._data_path
         )
 
+        # Connetti all'AppState per aggiornare la navigazione quando il modello cambia
+        app_state = AppState.instance()
+        app_state.model_changed.connect(self.update_navigation_state)
+
+        # Aggiorna stato iniziale navigazione (disabilita se nessun modello attivo)
+        self.update_navigation_state()
+
     def _on_page_changed(self, index: int) -> None:
         """Gestisce il cambio di pagina dalla sidebar."""
         self._stack.setCurrentIndex(index)
@@ -99,3 +107,11 @@ class MainWindow(QMainWindow):
             self._expenses_ctrl.refresh()
         elif index == 2 and hasattr(self, '_history_ctrl'):
             self._history_ctrl.refresh()
+
+    def update_navigation_state(self, model_id: str = "") -> None:
+        """Aggiorna lo stato dei pulsanti di navigazione in base al modello attivo."""
+        if not hasattr(self, '_sidebar'):
+            return  # Sidebar non ancora inizializzata
+        app_state = AppState.instance()
+        has_model = bool(app_state.current_model_id)
+        self._sidebar.set_navigation_enabled(has_model)

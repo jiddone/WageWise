@@ -33,6 +33,10 @@ class ExpenseModel:
     def _save(self) -> None:
         self._storage.write_json(self.FILENAME, self._data)
 
+    def refresh(self) -> None:
+        """Ricarica i dati dal disco."""
+        self._load()
+
     def get_all_expenses(self) -> list[dict]:
         expenses = list(self._data.get("expenses", []))
         expenses.sort(key=lambda e: e.get("date", ""), reverse=True)
