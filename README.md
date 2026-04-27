@@ -109,13 +109,14 @@ WageWise/
 Per generare un `.exe` standalone (Windows):
 
 ```bash
+py -m pip install -r requirements.txt
 powershell -ExecutionPolicy Bypass -File .\build.ps1
 ```
 
 Comando equivalente diretto:
 
 ```bash
-pyinstaller --noconfirm --clean --onefile --windowed --name "WageWise" --icon=assets/icon/favicon.ico --specpath build --workpath build/pyinstaller --distpath dist --add-data "assets;assets" main.py
+pyinstaller --noconfirm --clean --onefile --windowed --name "WageWise" --icon=assets/icon/favicon.ico --specpath build --workpath build/pyinstaller --distpath dist --collect-all reportlab --add-data "assets;assets" main.py
 ```
 
 L'eseguibile viene generato in `dist/WageWise.exe` e può essere distribuito direttamente senza installazione di Python.

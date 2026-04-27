@@ -14,6 +14,13 @@ if (Get-Command py -ErrorAction SilentlyContinue) {
     throw "Python launcher non trovato. Installa Python oppure rendi disponibile 'python' o 'py' nel PATH."
 }
 
+try {
+    & $pythonCmd -c "import reportlab"
+}
+catch {
+    throw "Dipendenza mancante: reportlab. Esegui '$pythonCmd -m pip install -r requirements.txt' prima della build."
+}
+
 Push-Location $projectRoot
 
 try {
@@ -24,9 +31,10 @@ try {
         --windowed `
         --name "WageWise" `
         --icon $iconPath `
-    --specpath "build" `
-    --workpath "build/pyinstaller" `
-    --distpath "dist" `
+        --specpath "build" `
+        --workpath "build/pyinstaller" `
+        --distpath "dist" `
+        --collect-all reportlab `
         --add-data $bundleAssetsArg `
         main.py
 }
