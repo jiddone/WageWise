@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import QMessageBox
 
 from views.expenses_view import ExpensesView
 from core.app_state import AppState
-from core.period import get_current_period, format_period_label
+from core.period import format_period_label
 from core.validators import validate_amount, validate_date_in_period
 from models.storage import Storage
 from models.settings_model import SettingsModel
@@ -53,6 +53,7 @@ class ExpensesController(QObject):
         # Connetti ai segnali AppState
         self._app_state.salary_changed.connect(self._on_salary_changed)
         self._app_state.model_changed.connect(self._on_model_changed)
+        self._app_state.settings_changed.connect(self.refresh)
         self._app_state.expenses_changed.connect(self.refresh)
 
     def _setup_view(self) -> None:
@@ -61,15 +62,37 @@ class ExpensesController(QObject):
         self._view.expense_delete_requested.connect(self._on_delete_expense)
         self._view.filter_changed.connect(self._on_filter_changed)
 
+    def _get_current_salary_context(self) -> tuple[dict | None, tuple[date, date]]:
+        self._settings_model.refresh()
+        salary_day = self._settings_model.get_salary_day()
+        self._salary_model.ensure_period_metadata(salary_day)
+        current_salary = self._salary_model.get_salary_covering_date(date.today(), salary_day)
+        if current_salary is not None:
+            current_period = self._salary_model.get_period_bounds(current_salary, salary_day)
+        else:
+            current_period = self._salary_model.get_effective_period_for_date(date.today(), salary_day)
+        return current_salary, current_period
+
+    def _get_period_categories(self, salary: dict | None) -> list[dict]:
+        if salary is not None:
+            model_id = salary.get("model_id", "")
+        else:
+            model_id = self._app_state.current_model_id
+            if not model_id:
+                model_id = self._settings_model.get_active_model_id()
+
+        if not model_id or not self._model_model.has_model(model_id):
+            return []
+        return self._model_model.get_categories_for_model(model_id)
+
     def refresh(self) -> None:
         """Aggiorna la view con i dati correnti."""
-        # Ricarica i dati dal disco per avere categorie aggiornate
-        self._model_model._load()
-        self._salary_model._load()
+        self._settings_model.refresh()
+        self._model_model.refresh()
+        self._salary_model.refresh()
+        self._expense_model.refresh()
 
-        # Calcola il periodo corrente
-        salary_day = self._settings_model.get_salary_day()
-        period_start, period_end = get_current_period(salary_day)
+        current_salary, (period_start, period_end) = self._get_current_salary_context()
         self._app_state.current_period = (period_start, period_end)
 
         # Aggiorna label periodo
@@ -77,31 +100,16 @@ class ExpensesController(QObject):
         self._view.set_period_label(period_text)
 
         # Carica lo stipendio del periodo corrente
-        salary = self._salary_model.get_salary_for_period(period_start, period_end)
-        if salary:
-            self._current_salary_id = salary["id"]
-            self._app_state.current_salary = salary["amount"]
-            self._view.set_add_button_enabled(True)
-
-            # Usa il modello attivo dall'AppState (aggiornato dal DashboardController)
-            active_model_id = self._app_state.current_model_id
-            if not active_model_id:
-                active_model_id = self._settings_model.get_active_model_id()
-            self._current_categories = self._model_model.get_categories_for_model(active_model_id)
+        if current_salary:
+            self._current_salary_id = current_salary["id"]
+            self._app_state.current_salary = current_salary["amount"]
+            self._current_categories = self._get_period_categories(current_salary)
+            self._view.set_add_button_enabled(bool(self._current_categories))
         else:
             self._current_salary_id = ""
             self._app_state.current_salary = 0.0
             self._view.set_add_button_enabled(False)
-            QMessageBox.warning(
-                self._view,
-                "Nessuno stipendio",
-                "Nessuno stipendio registrato per questo periodo.\nVai alla Dashboard per registrare lo stipendio."
-            )
-            # Se non c'è stipendio, usa il modello attivo dall'AppState
-            active_model_id = self._app_state.current_model_id
-            if not active_model_id:
-                active_model_id = self._settings_model.get_active_model_id()
-            self._current_categories = self._model_model.get_categories_for_model(active_model_id)
+            self._current_categories = self._get_period_categories(None)
 
         # Aggiorna categorie nella view
         categories_for_combo = [
@@ -218,12 +226,18 @@ class ExpensesController(QObject):
                 "Nessuno stipendio registrato per questo periodo."
             )
             return
+        if not self._current_categories:
+            QMessageBox.warning(
+                self._view,
+                "Errore",
+                "Il modello associato al periodo corrente non è disponibile."
+            )
+            return
 
         # Validazione data nel periodo
         try:
             expense_date = date.fromisoformat(date_str)
-            salary_day = self._settings_model.get_salary_day()
-            period_start, period_end = get_current_period(salary_day)
+            _, (period_start, period_end) = self._get_current_salary_context()
 
             if not validate_date_in_period(expense_date, period_start, period_end):
                 QMessageBox.warning(

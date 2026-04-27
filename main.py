@@ -58,6 +58,9 @@ def main():
     window = MainWindow(data_path=data_path)
     window.show()
 
+    # Aggiorna lo stato della navigazione DOPO che tutto è inizializzato
+    window.update_navigation_state()
+
     sys.exit(app.exec())
 
 

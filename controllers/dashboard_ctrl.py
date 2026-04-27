@@ -7,7 +7,7 @@ from PyQt6.QtCore import QObject
 
 from views.dashboard_view import DashboardView
 from core.app_state import AppState
-from core.period import get_current_period, format_period_label
+from core.period import format_period_label
 from core.validators import validate_amount, validate_model_categories
 from models.storage import Storage
 from models.settings_model import SettingsModel
@@ -59,12 +59,33 @@ class DashboardController(QObject):
         # Connetti all'AppState per aggiornamenti
         self._app_state.salary_changed.connect(self._on_salary_changed)
         self._app_state.model_changed.connect(self._on_model_changed)
+        self._app_state.settings_changed.connect(self.refresh)
+
+    def _get_valid_active_model_id(self) -> str:
+        self._settings_model.refresh()
+        active_model_id = self._settings_model.get_active_model_id()
+        if active_model_id and self._model_model.has_model(active_model_id):
+            return active_model_id
+        return ""
+
+    def _get_current_salary_context(self) -> tuple[dict | None, tuple[date, date]]:
+        self._settings_model.refresh()
+        salary_day = self._settings_model.get_salary_day()
+        self._salary_model.ensure_period_metadata(salary_day)
+        current_salary = self._salary_model.get_salary_covering_date(date.today(), salary_day)
+        if current_salary is not None:
+            current_period = self._salary_model.get_period_bounds(current_salary, salary_day)
+        else:
+            current_period = self._salary_model.get_effective_period_for_date(date.today(), salary_day)
+        return current_salary, current_period
 
     def refresh(self) -> None:
         """Aggiorna la view con i dati correnti."""
-        # Calcola il periodo corrente
-        salary_day = self._settings_model.get_salary_day()
-        period_start, period_end = get_current_period(salary_day)
+        self._settings_model.refresh()
+        self._model_model.refresh()
+        self._salary_model.refresh()
+
+        current_salary, (period_start, period_end) = self._get_current_salary_context()
         self._app_state.current_period = (period_start, period_end)
 
         # Aggiorna label periodo
@@ -72,10 +93,9 @@ class DashboardController(QObject):
         self._view.set_period_label(period_text)
 
         # Carica lo stipendio del periodo corrente
-        salary = self._salary_model.get_salary_for_period(period_start, period_end)
-        if salary:
-            self._view.set_salary_input(str(salary["amount"]))
-            self._app_state.current_salary = salary["amount"]
+        if current_salary:
+            self._view.set_salary_input(str(current_salary["amount"]))
+            self._app_state.current_salary = current_salary["amount"]
         else:
             self._view.set_salary_input("")
             self._app_state.current_salary = 0.0
@@ -87,27 +107,38 @@ class DashboardController(QObject):
         self._view.set_models(models, custom_ids)
 
         # Seleziona il modello attivo
-        active_model_id = self._settings_model.get_active_model_id()
-        self._view.set_selected_model(active_model_id)
+        active_model_id = self._get_valid_active_model_id()
+        if current_salary is not None:
+            self._view.set_selected_model(current_salary.get("model_id", ""))
+        else:
+            self._view.set_selected_model(active_model_id)
         self._view.set_active_model_id(active_model_id)
         self._app_state.current_model_id = active_model_id
 
         # Aggiorna la tabella riepilogativa
-        self._update_summary()
+        self._update_summary(current_salary)
 
-    def _update_summary(self) -> None:
+    def _update_summary(self, current_salary: dict | None = None) -> None:
         """Aggiorna la tabella riepilogativa con il modello e stipendio correnti."""
-        model_id = self._view.get_selected_model_id()
-        if not model_id:
+        if current_salary is None:
+            current_salary, _ = self._get_current_salary_context()
+
+        if current_salary is not None:
+            model_id = current_salary.get("model_id", "")
+            salary = current_salary.get("amount", 0.0)
+        else:
+            model_id = self._view.get_selected_model_id()
+            salary_text = self._view.get_salary_input()
+            try:
+                salary = float(salary_text.replace(',', '.')) if salary_text else 0.0
+            except ValueError:
+                salary = 0.0
+
+        if not model_id or not self._model_model.has_model(model_id):
+            self._view.set_summary_data([], salary)
             return
 
         categories = self._model_model.get_categories_for_model(model_id)
-        salary_text = self._view.get_salary_input()
-
-        try:
-            salary = float(salary_text.replace(',', '.')) if salary_text else 0.0
-        except ValueError:
-            salary = 0.0
 
         self._view.set_summary_data(categories, salary)
 
@@ -119,24 +150,29 @@ class DashboardController(QObject):
             QMessageBox.warning(self._view, "Errore", error)
             return
 
-        # Ottieni il periodo corrente
-        salary_day = self._settings_model.get_salary_day()
-        period_start, period_end = get_current_period(salary_day)
-
-        # Ottieni il modello attivo
-        model_id = self._settings_model.get_active_model_id()
+        current_salary, (period_start, period_end) = self._get_current_salary_context()
+        if current_salary is not None:
+            model_id = current_salary.get("model_id", "")
+        else:
+            model_id = self._get_valid_active_model_id()
+        if not model_id or not self._model_model.has_model(model_id):
+            self._view.show_error("Seleziona o crea un modello valido prima di salvare lo stipendio.")
+            return
 
         # Salva lo stipendio (sovrascrivi se esiste già per questo periodo)
         date_str = period_start.isoformat()
-        salary = self._salary_model.overwrite_salary_for_period(
-            amount, date_str, model_id
+        self._salary_model.overwrite_salary_for_period(
+            amount,
+            date_str,
+            model_id,
+            period_end_str=period_end.isoformat(),
         )
 
         # Aggiorna l'AppState
         self._app_state.current_salary = amount
 
         # Aggiorna la tabella riepilogativa
-        self._update_summary()
+        self.refresh()
 
     def _on_model_selected(self, model_id: str) -> None:
         """Gestisce la selezione di un modello nel ComboBox (solo anteprima).
@@ -170,6 +206,11 @@ class DashboardController(QObject):
 
         try:
             if model_id:
+                if self._salary_model.is_model_in_use(model_id):
+                    self._view.show_error(
+                        "Questo modello è già usato nello storico e non può essere modificato."
+                    )
+                    return
                 # Aggiorna modello esistente
                 self._model_model.update_model(model_id, name, categories)
                 self._view.show_info(f"Modello '{name}' aggiornato con successo!")
@@ -201,12 +242,17 @@ class DashboardController(QObject):
 
     def _on_cancel_custom_model(self) -> None:
         """Gestisce l'annullamento della creazione modello custom."""
-        # La view già nasconde l'editor, qui possiamo fare pulizia aggiuntiva se necessario
-        pass
+        # La view gestisce già la chiusura dell'editor.
+        return
 
     def _on_edit_model(self, model_id: str) -> None:
         """Gestisce la richiesta di modifica di un modello custom."""
         try:
+            if self._salary_model.is_model_in_use(model_id):
+                self._view.show_error(
+                    "Questo modello è già usato nello storico e non può essere modificato."
+                )
+                return
             # Ottieni i dati del modello
             model = self._model_model.get_model_by_id(model_id)
             if model:
@@ -218,8 +264,14 @@ class DashboardController(QObject):
     def _on_delete_model(self, model_id: str) -> None:
         """Gestisce l'eliminazione di un modello custom."""
         try:
+            if self._salary_model.is_model_in_use(model_id):
+                self._view.show_error(
+                    "Questo modello è già usato nello storico e non può essere eliminato."
+                )
+                return
+
             # Ottieni il modello attivo
-            active_model_id = self._settings_model.get_active_model_id()
+            active_model_id = self._get_valid_active_model_id()
 
             # Se il modello da eliminare è quello attivo, cambia prima a un altro modello
             if model_id == active_model_id:
@@ -261,9 +313,12 @@ class DashboardController(QObject):
             if not model_id:
                 self._view.show_error("Nessun modello selezionato.")
                 return
+            if not self._model_model.has_model(model_id):
+                self._view.show_error("Il modello selezionato non esiste più.")
+                return
 
             # Ottieni il modello attuale
-            current_active_id = self._settings_model.get_active_model_id()
+            current_active_id = self._get_valid_active_model_id()
 
             # Se è già il modello attivo, non fare nulla
             if model_id == current_active_id:
@@ -271,12 +326,11 @@ class DashboardController(QObject):
                 return
 
             # Verifica che non ci siano spese registrate per il mese corrente
-            salary_day = self._settings_model.get_salary_day()
-            period_start, period_end = get_current_period(salary_day)
-            salary = self._salary_model.get_salary_for_period(period_start, period_end)
-            if salary:
-                self._expense_model._load()  # ricarica dati aggiornati
-                total_expenses = self._expense_model.get_total_by_period(salary["id"])
+            # (solo se esiste già uno stipendio per questo periodo)
+            current_salary, _ = self._get_current_salary_context()
+            if current_salary:
+                self._expense_model.refresh()
+                total_expenses = self._expense_model.get_total_by_period(current_salary["id"])
                 if total_expenses > 0:
                     self._view.show_error(
                         "Impossibile cambiare il modello attivo: "

@@ -87,6 +87,9 @@ class Sidebar(QWidget):
 
     def _on_button_clicked(self, index: int) -> None:
         """Gestisce il click su un pulsante di navigazione."""
+        # Se il pulsante è disabilitato, ignora il click
+        if index > 0 and not self._buttons[index].isEnabled():
+            return
         self.set_current_index(index)
         self.page_changed.emit(index)
 
@@ -96,3 +99,12 @@ class Sidebar(QWidget):
             self._current_index = index
             for i, btn in enumerate(self._buttons):
                 btn.setChecked(i == index)
+
+    def set_navigation_enabled(self, enabled: bool) -> None:
+        """Abilita o disabilita la navigazione alle pagine Spese e Storico.
+
+        Quando enabled=False, i pulsanti 'Spese' e 'Storico' diventano
+        non cliccabili (utile se nessun modello è attivo).
+        """
+        self._btn_expenses.setEnabled(enabled)
+        self._btn_history.setEnabled(enabled)
